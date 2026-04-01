@@ -1,0 +1,36 @@
+name: Plezy APK Auto Updater
+
+on:
+  schedule:
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 최신버전 다운로드 및 압축 해제
+        run: |
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/edde746/plezy/releases/latest | grep "browser_download_url.*arm64-v8a.tar.gz" | cut -d '"' -f 4)
+          wget $DOWNLOAD_URL -O plezy.tar.gz
+          tar -xzvf plezy.tar.gz
+          APK_PATH=$(find . -name "*.apk" | head -n 1)
+          mv "$APK_PATH" plezy.apk
+
+      - name: 기존 파일 삭제
+        run: |
+          gh release delete latest_apk --cleanup-tag -y || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 압축 해제된 APK 업로드
+        run: |
+          gh release create latest_apk plezy.apk --title "최신 Plezy APK" --notes "자동으로 압축 해제된 파일입니다."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
