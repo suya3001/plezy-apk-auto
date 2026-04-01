@@ -20,8 +20,11 @@ jobs:
           DOWNLOAD_URL=$(curl -s https://api.github.com/repos/edde746/plezy/releases/latest | grep "browser_download_url.*arm64-v8a.tar.gz" | cut -d '"' -f 4)
           wget $DOWNLOAD_URL -O plezy.tar.gz
           tar -xzvf plezy.tar.gz
+          
+          # 에러 해결: 이름이 같아서 멈추는 현상을 막기 위해 복사 후 덮어쓰기
           APK_PATH=$(find . -name "*.apk" | head -n 1)
-          mv "$APK_PATH" plezy.apk
+          cp "$APK_PATH" temp_plezy.apk
+          mv temp_plezy.apk plezy.apk
 
       - name: 기존 파일 삭제
         run: |
