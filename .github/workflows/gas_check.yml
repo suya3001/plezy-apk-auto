@@ -2,9 +2,7 @@ name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
-    # 1. 한국 시간 아침 7시 정각 (UTC 22:00)
     - cron: '0 22 * * *'
-    # 2. 한국 시간 오후 5시 정각 (UTC 08:00)
     - cron: '0 8 * * *'
   workflow_dispatch:
 
@@ -30,25 +28,22 @@ jobs:
           from bs4 import BeautifulSoup
           from datetime import datetime, timedelta
 
-          # 한국 시간(KST) 설정
           now_kst = datetime.utcnow() + timedelta(hours=9)
           date_str = f"{now_kst.year}년{now_kst.month}월{now_kst.day}일"
           time_str = now_kst.strftime('%H:%M')
 
-          # 주유소 리스트
           stations = [
               {'name': '오산 SK참존주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002075'},
               {'name': '마도 지성주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002055'},
               {'name': '오산 운암뜰주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002576'}
           ]
 
-          # 제목 변경 적용
-          msg = f'⛽ 주유소 실시간 가격 및 유가 전망 알림 ⛽\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
+          # HTML 태그 <b>를 사용하여 굵은 글씨 강조 (시인성 향상)
+          msg = f'<b>⛽ 주유소 실시간 가격 및 유가 전망 알림 ⛽</b>\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
           headers = {'User-Agent': 'Mozilla/5.0'}
 
           current_prices = []
 
-          # 1. 현재 가격 수집
           for s in stations:
               try:
                   res = requests.get(s['url'], headers=headers)
@@ -56,16 +51,16 @@ jobs:
                   text = soup.get_text(separator=' ', strip=True)
                   match = re.search(r'휘발유\D*?([0-9,]{4,6})\s*원', text)
                   price = match.group(1) if match else "확인 불가"
-                  msg += f'✔️ {s["name"]}: {price}원\n'
+                  msg += f'✔️ {s["name"]}: <b>{price}원</b>\n'
                   current_prices.append(price)
               except:
                   msg += f'❌ {s["name"]}: 접속 실패\n'
                   current_prices.append("실패")
 
-          msg += f'\n김진수님 오늘도 안전운전 하세요! 🚗\n\n'
+          # 호칭 변경
+          msg += f'\n<b>사랑하는 진수님</b> 오늘도 안전운전 하세요! 🚗\n\n'
 
-          # 2. 내일의 유가 정보 및 코멘트 수집 (쉬운 말로 변경)
-          msg += '😃내일의 유가 및 전망 정보😃\n'
+          msg += '<b>😃내일의 유가 및 전망 정보😃</b>\n'
           
           try:
               search_url = "https://search.naver.com/search.naver?where=news&query=기름값+전망+전국평균"
@@ -74,7 +69,6 @@ jobs:
               first_news = soup_news.select_one(".news_tit")
               news_title = first_news.get_text() if first_news else "유가 변동성 주시 필요"
               
-              # 쉬운 단어로 코멘트 분기 처리
               if "인상" in news_title or "오름세" in news_title or "상승" in news_title:
                   diff = 5
                   trend_word = "오를"
@@ -89,18 +83,24 @@ jobs:
                   p = current_prices[i].replace(',', '')
                   if p.isdigit():
                       future_p = format(int(p) + diff, ',')
-                      msg += f'✔️ {s["name"]}: {future_p}원(예상)\n'
+                      msg += f'✔️ {s["name"]}: <b>{future_p}원</b>(예상)\n'
                   else:
                       msg += f'✔️ {s["name"]}: 데이터 수집중\n'
                       
               msg += f'\n📢 관련 뉴스: {news_title}\n'
-              msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 {trend_word} 것으로 보입니다. 주유에 참고하세요!'
+              msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다. 주유에 참고하세요!\n\n'
+              
+              # 지역별 최저가/최고가를 직접 확인할 수 있는 스마트 링크 추가
+              msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
+              msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 가격 보기</a>\n'
+              msg += '👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">화성시 마도면 주유소 가격 보기</a>\n'
+              
           except:
               msg += '데이터 분석 중 오류가 발생했습니다.'
 
-          # 텔레그램 전송
+          # 텔레그램 전송 시 HTML 파싱 모드 활성화
           bot_token = os.environ.get("TELEGRAM_TOKEN")
           chat_id = os.environ.get("TELEGRAM_CHAT_ID")
           url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-          requests.post(url, data={'chat_id': chat_id, 'text': msg})
+          requests.post(url, data={'chat_id': chat_id, 'text': msg, 'parse_mode': 'HTML'})
           EOF
