@@ -27,11 +27,11 @@ jobs:
           import requests, os, re
           from bs4 import BeautifulSoup
           
-          # 주인님이 요청하신 3개 주유소 데이터 주소
+          # 주인님이 요청하신 3개 주유소 데이터 주소 (운암뜰주유소 주소 수정 완료)
           stations = [
               {'name': '오산 SK참존주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002075'},
               {'name': '마도 지성주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002055'},
-              {'name': '오산 운암뜰주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002061'}
+              {'name': '오산 운암뜰주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002576'}
           ]
           
           msg = '⛽ 오늘 아침 휘발유 가격 ⛽\n\n'
@@ -42,7 +42,7 @@ jobs:
                   res = requests.get(s['url'], headers=headers)
                   soup = BeautifulSoup(res.text, 'html.parser')
                   text = soup.get_text(separator=' ', strip=True)
-                  # 휘발유 글자 뒤에 나오는 금액 추출
+                  # 휘발유 글자 뒤에 나오는 4~5자리 금액을 추적합니다.
                   match = re.search(r'휘발유\D*?([0-9,]{4,6})\s*원', text)
                   if match:
                       msg += f'✔️ {s["name"]}: {match.group(1)}원\n'
