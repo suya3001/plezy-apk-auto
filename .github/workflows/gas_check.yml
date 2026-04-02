@@ -84,27 +84,30 @@ jobs:
           except:
               msg += '전망 데이터 분석 실패\n'
 
-          # 3. 전국 휘발유 시세 완벽 복구 (네이버 검색 결과 구조 완벽 대응)
+          # 3. 전국 휘발유 시세 (해외 서버 접속 환경에 맞춘 초강력 유연한 정규식)
           msg += '\n<b>😃 휘발유 시세 🤩</b>\n'
           try:
-              res_m = requests.get("https://search.naver.com/search.naver?query=휘발유+시세", headers=headers)
+              res_m = requests.get("https://search.naver.com/search.naver?query=전국+휘발유+가격", headers=headers)
               soup_m = BeautifulSoup(res_m.text, 'html.parser')
               text_m = soup_m.get_text(separator=' ', strip=True)
               
-              match_m = re.search(r'보통휘발유\s*([0-9,]+\.[0-9]{2})\s*(상승|하락|보합)\s*([0-9.]+)\s*([+-]?[0-9.]+%)?', text_m)
+              # '휘발유' 글자 주변의 [가격], [상승/하락], [변동폭]을 최대한 유연하게 찾음
+              match_m = re.search(r'휘발유\D*?([0-9,]{4,5}\.[0-9]{1,2})\D*?(상승|하락|보합)\D*?([0-9.]+)', text_m)
+              
               if match_m:
-                  p_val, p_dir, p_amt, p_pct = match_m.groups()
-                  pct_str = f"({p_pct})" if p_pct else ""
-                  msg += f'<b>{p_val}</b> 전일대비 {p_dir}{p_amt} {pct_str}\n'
+                  p_val, p_dir, p_amt = match_m.groups()
+                  msg += f'<b>{p_val}원</b> (전일대비 {p_dir} {p_amt}원)\n'
               else:
-                  fallback = re.search(r'보통휘발유\s*([0-9,]+\.[0-9]{2})', text_m)
+                  # 상승/하락 글자가 없더라도 '가격'만은 무조건 잡아내기 위한 2차 방어선
+                  fallback = re.search(r'휘발유\D*?([0-9,]{4,5}\.[0-9]{1,2})', text_m)
                   if fallback:
-                      msg += f'<b>{fallback.group(1)}</b> (등락폭 수집 지연)\n'
+                      msg += f'<b>{fallback.group(1)}원</b> (등락폭 수집 지연)\n'
                   else:
-                      msg += '시세 수집 불가 (네이버 검색 일시 오류)\n'
+                      msg += '시세 수집 불가 (네이버 보안 차단 등 일시 오류)\n'
           except:
               msg += '시세 시스템 접속 오류\n'
 
+          # 4. 날씨 정보
           msg += f'\n<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
           try:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
