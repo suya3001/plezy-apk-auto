@@ -1,4 +1,4 @@
-name: 주유소 가격 및 유가 전망 알림
+name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
@@ -42,8 +42,8 @@ jobs:
               {'name': '오산 운암뜰주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002576'}
           ]
 
-          # 메시지 헤더
-          msg = f'⛽ 실시간 휘발유 가격 브리핑 ⛽\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
+          # 제목 변경 적용
+          msg = f'⛽ 주유소 실시간 가격 및 유가 전망 알림 ⛽\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
           headers = {'User-Agent': 'Mozilla/5.0'}
 
           current_prices = []
@@ -64,34 +64,37 @@ jobs:
 
           msg += f'\n김진수님 오늘도 안전운전 하세요! 🚗\n\n'
 
-          # 2. 내일의 유가 정보 및 코멘트 수집 (뉴스 요약)
+          # 2. 내일의 유가 정보 및 코멘트 수집 (쉬운 말로 변경)
           msg += '😃내일의 유가 및 전망 정보😃\n'
           
-          # 간단한 전망 로직 (뉴스 검색 기반)
           try:
-              # 네이버 유가 뉴스 검색 (최신 동향 파악용)
               search_url = "https://search.naver.com/search.naver?where=news&query=기름값+전망+전국평균"
               res_news = requests.get(search_url, headers=headers)
               soup_news = BeautifulSoup(res_news.text, 'html.parser')
               first_news = soup_news.select_one(".news_tit")
               news_title = first_news.get_text() if first_news else "유가 변동성 주시 필요"
               
-              # 내일 예상 가격 (현재는 안내 정책 과도기라 뉴스 트렌드 기반으로 코멘트 생성)
-              # 실제 개별 주유소의 '내일 확정가'는 오피넷에서 아주 제한적으로 공개하므로 트렌드를 반영합니다.
-              trend = "상승" if "인상" in news_title or "오름세" in news_title else "하락" if "인하" in news_title or "내림세" in news_title else "보합"
+              # 쉬운 단어로 코멘트 분기 처리
+              if "인상" in news_title or "오름세" in news_title or "상승" in news_title:
+                  diff = 5
+                  trend_word = "오를"
+              elif "인하" in news_title or "내림세" in news_title or "하락" in news_title:
+                  diff = -5
+                  trend_word = "내릴"
+              else:
+                  diff = 0
+                  trend_word = "큰 변동 없이 비슷할"
               
               for i, s in enumerate(stations):
                   p = current_prices[i].replace(',', '')
                   if p.isdigit():
-                      # 간단한 예측 로직: 뉴스 트렌드가 상승이면 +5원, 하락이면 -5원 (시뮬레이션)
-                      diff = 5 if trend == "상승" else -5 if trend == "하락" else 0
                       future_p = format(int(p) + diff, ',')
                       msg += f'✔️ {s["name"]}: {future_p}원(예상)\n'
                   else:
                       msg += f'✔️ {s["name"]}: 데이터 수집중\n'
                       
-              msg += f'\n📢 유가 동향: {news_title}\n'
-              msg += f'💡 코멘트: 현재 국제 유가 영향으로 이번 주 {trend}세가 예상됩니다. 주유 계획에 참고하세요.'
+              msg += f'\n📢 관련 뉴스: {news_title}\n'
+              msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 {trend_word} 것으로 보입니다. 주유에 참고하세요!'
           except:
               msg += '데이터 분석 중 오류가 발생했습니다.'
 
