@@ -1,0 +1,60 @@
+name: 아침 주유소 가격 알림
+
+on:
+  schedule:
+    # 한국 시간 기준 아침 7시 정각 (UTC 기준 22시 00분)
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-gas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 파이썬 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 필요 프로그램 설치
+        run: pip install requests beautifulsoup4
+
+      - name: 가격 확인 및 텔레그램 전송
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<EOF
+          import requests, os, re
+          from bs4 import BeautifulSoup
+          
+          # 주인님이 요청하신 오산, 마도 주유소의 오피넷 데이터 주소입니다.
+          stations = [
+              {'name': '오산 SK참존주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002075'},
+              {'name': '마도 지성주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002055'}
+          ]
+          
+          msg = '⛽ 오늘 아침 휘발유 가격 ⛽\n\n'
+          headers = {'User-Agent': 'Mozilla/5.0'}
+          
+          for s in stations:
+              try:
+                  res = requests.get(s['url'], headers=headers)
+                  soup = BeautifulSoup(res.text, 'html.parser')
+                  text = soup.get_text(separator=' ', strip=True)
+                  # 휘발유 글자 뒤에 나오는 4~5자리 금액을 추적합니다.
+                  match = re.search(r'휘발유\D*?([0-9,]{4,6})\s*원', text)
+                  if match:
+                      msg += f'✔️ {s["name"]}: {match.group(1)}원\n'
+                  else:
+                      msg += f'❓ {s["name"]}: 오늘 가격 확인 불가\n'
+              except Exception:
+                  msg += f'❌ {s["name"]}: 사이트 접속 실패\n'
+                  
+          msg += '\n오늘도 안전운전 하세요! 🚗'
+          
+          # 텔레그램 전송
+          bot_token = os.environ.get("TELEGRAM_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+          url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+          requests.post(url, data={'chat_id': chat_id, 'text': msg})
+          EOF
