@@ -122,6 +122,12 @@ jobs:
           msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 보기</a>\n'
           msg += '👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">마도면 주유소 보기</a>\n'
           
-          requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage", 
-                        data={'chat_id': os.environ['TELEGRAM_CHAT_ID'], 'text': msg, 'parse_mode': 'HTML'})
+          # 하단 배너(링크 미리보기)를 끄는 옵션 추가!
+          payload = {
+              'chat_id': os.environ['TELEGRAM_CHAT_ID'], 
+              'text': msg, 
+              'parse_mode': 'HTML',
+              'disable_web_page_preview': 'true'
+          }
+          requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage", data=payload)
           EOF
