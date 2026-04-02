@@ -2,8 +2,8 @@ name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
-    - cron: '0 22 * * *'
-    - cron: '0 8 * * *'
+    - cron: '30 21 * * *'  # 한국 시간 오전 06:30
+    - cron: '0 8 * * *'    # 한국 시간 오후 17:00
   workflow_dispatch:
 
 jobs:
@@ -84,37 +84,21 @@ jobs:
           except:
               msg += '전망 데이터 분석 실패\n'
 
-          # 3. 전국 휘발유 시세 (스크린샷 맞춤형 정밀 타겟팅)
           msg += '\n<b>😃 휘발유 시세 🤩</b>\n'
           try:
-              # 진수님이 보내주신 스크린샷과 동일한 결과가 나오는 검색어로 접근
               res_m = requests.get("https://search.naver.com/search.naver?query=휘발유+가격", headers=headers)
               text_m = BeautifulSoup(res_m.text, 'html.parser').get_text(separator=' ', strip=True)
-              
-              # 스크린샷 구조 완벽 매칭: "휘발유 (원/리터) 1,922.48 ▲ 12.70 (+0.66%)"
               m1 = re.search(r'휘발유[^\d]{0,20}?([12],[0-9]{3}\.[0-9]{2})[^\d]{0,10}?(상승|하락|보합|▲|▼)[^\d]{0,10}?([0-9.]+)[^\d]{0,10}?(\([+-]?[0-9.]+%\))?', text_m)
-              
               if m1:
-                  p_val = m1.group(1)
-                  p_dir = m1.group(2)
-                  p_amt = m1.group(3)
-                  p_pct = m1.group(4) if m1.group(4) else ""
-                  
+                  p_val, p_dir, p_amt, p_pct = m1.group(1), m1.group(2), m1.group(3), m1.group(4) or ""
                   sign = "🔺상승 " if p_dir in ["상승", "▲"] else "🔻하락 " if p_dir in ["하락", "▼"] else "➖보합 "
-                  # 양식에 맞춰 깔끔하게 출력
-                  final_txt = f'<b>{p_val}원</b> (전일대비 {sign}{p_amt} {p_pct})\n'
-                  msg += final_txt.replace('  ', ' ')
+                  msg += f'<b>{p_val}원</b> (전일대비 {sign}{p_amt} {p_pct})\n'.replace('  ', ' ')
               else:
-                  # 엉뚱한 숫자를 잡는 위험한 코드 삭제, 오직 '원/리터' 근처의 확실한 값만 찾음
                   fallback = re.search(r'휘발유\s*\(원/리터\)\s*([12],[0-9]{3}\.[0-9]{2})', text_m)
-                  if fallback:
-                      msg += f'<b>{fallback.group(1)}원</b> (등락폭 수집 지연)\n'
-                  else:
-                      msg += '시세 수집 불가 (데이터 일시 지연)\n'
+                  msg += f'<b>{fallback.group(1)}원</b> (등락폭 수집 지연)\n' if fallback else '시세 수집 불가\n'
           except:
               msg += '시세 시스템 접속 오류\n'
 
-          # 4. 날씨 정보
           msg += f'\n<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
           try:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
@@ -125,28 +109,19 @@ jobs:
                   t_m = re.search(r'현재 온도\s*([0-9.-]+)', text_w)
                   temp = t_m.group(1) if t_m else "확인불가"
                   d_m = re.search(r'어제보다.*?도.*?\s+([가-힣]+)\s+강수확률', text_w)
-                  if d_m:
-                      desc = d_m.group(1)
-                  else:
-                      desc_tag = info_box.find('span', class_='weather before_slash')
-                      desc = desc_tag.text.strip() if desc_tag else "확인불가"
+                  desc = d_m.group(1) if d_m else "맑음"
                   r_m = re.search(r'강수확률\s*([0-9]+%)', text_w)
                   rain = r_m.group(1) if r_m else "0%"
-              else:
-                  temp, desc, rain = "확인불가", "확인불가", "확인불가"
-              msg += f'🌤️ 오산 날씨: {desc} ({temp}℃) / 비 올 확률 {rain}\n'
+                  msg += f'🌤️ 오산 날씨: {desc} ({temp}℃) / 비 올 확률 {rain}\n'
           except:
-              msg += '🌤️ 날씨 정보를 불러올 수 없습니다.\n'
+              msg += '🌤️ 날씨 정보 수집 오류\n'
 
           msg += f'\n📢 관련 뉴스: {news_title}\n'
-          msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다. 주유에 참고하세요!\n\n'
-          
+          msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다.\n\n'
           msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
-          msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 가격 보기</a>\n'
-          msg += '👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">화성시 마도면 주유소 가격 보기</a>\n'
+          msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 보기</a>\n'
+          msg += '👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">마도면 주유소 보기</a>\n'
           
-          bot_token = os.environ.get("TELEGRAM_TOKEN")
-          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-          url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-          requests.post(url, data={'chat_id': chat_id, 'text': msg, 'parse_mode': 'HTML'})
+          requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage", 
+                        data={'chat_id': os.environ['TELEGRAM_CHAT_ID'], 'text': msg, 'parse_mode': 'HTML'})
           EOF
