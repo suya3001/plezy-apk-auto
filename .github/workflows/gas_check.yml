@@ -84,41 +84,37 @@ jobs:
           except:
               msg += '전망 데이터 분석 실패\n'
 
-          # 3. 전국 휘발유 시세 완벽 복구 (모바일 웹 + 금융 메인 3중 방어막)
+          # 3. 전국 휘발유 시세 (스크린샷 맞춤형 정밀 타겟팅)
           msg += '\n<b>😃 휘발유 시세 🤩</b>\n'
           try:
-              # 1차 시도: 네이버 모바일 검색으로 위장 (가장 안정적임)
-              mh = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
-              res_m = requests.get("https://m.search.naver.com/search.naver?query=전국+휘발유+시세", headers=mh)
+              # 진수님이 보내주신 스크린샷과 동일한 결과가 나오는 검색어로 접근
+              res_m = requests.get("https://search.naver.com/search.naver?query=휘발유+가격", headers=headers)
               text_m = BeautifulSoup(res_m.text, 'html.parser').get_text(separator=' ', strip=True)
               
-              m1 = re.search(r'(?:보통\s*)?휘발유\s*([12],[0-9]{3}\.[0-9]{1,2})\s*(?:원)?\s*(?:전일대비)?\s*(상승|하락|보합|\+|-)?\s*([0-9.]+)?', text_m)
+              # 스크린샷 구조 완벽 매칭: "휘발유 (원/리터) 1,922.48 ▲ 12.70 (+0.66%)"
+              m1 = re.search(r'휘발유[^\d]{0,20}?([12],[0-9]{3}\.[0-9]{2})[^\d]{0,10}?(상승|하락|보합|▲|▼)[^\d]{0,10}?([0-9.]+)[^\d]{0,10}?(\([+-]?[0-9.]+%\))?', text_m)
               
-              if m1 and m1.group(2):
-                  p_val, p_dir, p_amt = m1.groups()
-                  sign = "🔺상승 " if p_dir in ["상승", "+"] else "🔻하락 " if p_dir in ["하락", "-"] else "➖보합 "
-                  msg += f'<b>{p_val}원</b> (전일대비 {sign}{p_amt}원)\n'
-              else:
-                  # 2차 시도: 네이버 금융 메인 페이지 텍스트 분석
-                  res_f = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'})
-                  text_f = BeautifulSoup(res_f.text, 'html.parser').get_text(separator=' ', strip=True)
-                  m2 = re.search(r'국내\s*휘발유\s*([12],[0-9]{3}\.[0-9]{2})\s*(상승|하락|보합|\+|-)?\s*([0-9.]+)?', text_f)
+              if m1:
+                  p_val = m1.group(1)
+                  p_dir = m1.group(2)
+                  p_amt = m1.group(3)
+                  p_pct = m1.group(4) if m1.group(4) else ""
                   
-                  if m2 and m2.group(2):
-                      p_val, p_dir, p_amt = m2.groups()
-                      sign = "🔺상승 " if p_dir in ["상승", "+"] else "🔻하락 " if p_dir in ["하락", "-"] else "➖보합 "
-                      msg += f'<b>{p_val}원</b> (전일대비 {sign}{p_amt}원)\n'
+                  sign = "🔺상승 " if p_dir in ["상승", "▲"] else "🔻하락 " if p_dir in ["하락", "▼"] else "➖보합 "
+                  # 양식에 맞춰 깔끔하게 출력
+                  final_txt = f'<b>{p_val}원</b> (전일대비 {sign}{p_amt} {p_pct})\n'
+                  msg += final_txt.replace('  ', ' ')
+              else:
+                  # 엉뚱한 숫자를 잡는 위험한 코드 삭제, 오직 '원/리터' 근처의 확실한 값만 찾음
+                  fallback = re.search(r'휘발유\s*\(원/리터\)\s*([12],[0-9]{3}\.[0-9]{2})', text_m)
+                  if fallback:
+                      msg += f'<b>{fallback.group(1)}원</b> (등락폭 수집 지연)\n'
                   else:
-                      # 3차 시도: 무조건 1,600.00 형태의 가격 숫자라도 건져냄
-                      m3 = re.search(r'1,[5-9][0-9]{2}\.[0-9]{2}', text_m + text_f)
-                      if m3:
-                          msg += f'<b>{m3.group(0)}원</b> (등락폭 수집 지연)\n'
-                      else:
-                          msg += '시세 수집 불가 (네이버 데이터 제공 방식 변경)\n'
+                      msg += '시세 수집 불가 (데이터 일시 지연)\n'
           except:
               msg += '시세 시스템 접속 오류\n'
 
-          # 4. 날씨 정보 (정상 작동)
+          # 4. 날씨 정보
           msg += f'\n<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
           try:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
