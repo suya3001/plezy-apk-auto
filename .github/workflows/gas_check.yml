@@ -84,29 +84,35 @@ jobs:
           except:
               msg += '전망 데이터 분석 실패\n'
 
-          # 3. 전국 휘발유 시세 (네이버 금융 공식 데이터 연동으로 변경)
+          # 3. 전국 휘발유 시세 완벽 복구 (HTML 원문 직접 타겟팅)
           msg += '\n<b>😃 휘발유 시세 🤩</b>\n'
           try:
               res_m = requests.get("https://finance.naver.com/marketindex/", headers=headers)
-              soup_m = BeautifulSoup(res_m.text, 'html.parser')
+              html_m = res_m.text
               
-              # '국내 휘발유' 전용 박스 타겟팅
-              gas_box = soup_m.find('a', href=re.compile('marketindexCd=OIL_GAS'))
-              if gas_box:
-                  val = gas_box.find(class_='value').get_text(strip=True)
-                  change = gas_box.find(class_='change').get_text(strip=True)
-                  blind_tag = gas_box.find(class_='blind')
-                  blind = blind_tag.get_text(strip=True) if blind_tag else ""
+              # '국내 휘발유'라는 글자 뒤에 나오는 숫자(value)를 직접 추적
+              match_m = re.search(r'국내 휘발유<.*?class="value">([0-9,.]+)<', html_m, re.DOTALL)
+              
+              if match_m:
+                  p_val = match_m.group(1)
+                  # 숫자 뒤 200글자 안에서 상승/하락 여부와 등락폭 숫자를 족집게처럼 찾아냄
+                  sub_html = html_m[match_m.end():match_m.end()+200]
+                  m_dir = re.search(r'class="blind">(상승|하락|보합)<', sub_html)
+                  m_amt = re.search(r'class="change">\s*([0-9,.]+)\s*<', sub_html)
                   
-                  # 상승/하락 직관적인 기호 적용
-                  sign = "🔺상승 " if blind == "상승" else "🔻하락 " if blind == "하락" else ""
-                  msg += f'<b>{val}원</b> (전일대비 {sign}{change})\n'
+                  if m_dir and m_amt:
+                      p_dir = m_dir.group(1)
+                      p_amt = m_amt.group(1)
+                      sign = "🔺상승 " if p_dir == "상승" else "🔻하락 " if p_dir == "하락" else "➖보합 "
+                      msg += f'<b>{p_val}원</b> (전일대비 {sign}{p_amt}원)\n'
+                  else:
+                      msg += f'<b>{p_val}원</b>\n'
               else:
-                  msg += '시세 수집 불가 (금융 데이터 지연)\n'
+                  msg += '시세 수집 불가 (데이터 구조 변경)\n'
           except:
               msg += '시세 시스템 접속 오류\n'
 
-          # 4. 날씨 정보
+          # 4. 날씨 정보 (정상 작동 유지)
           msg += f'\n<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
           try:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
