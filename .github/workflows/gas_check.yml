@@ -84,26 +84,25 @@ jobs:
           except:
               msg += '전망 데이터 분석 실패\n'
 
-          # 3. 전국 휘발유 시세 (해외 서버 접속 환경에 맞춘 초강력 유연한 정규식)
+          # 3. 전국 휘발유 시세 (네이버 금융 공식 데이터 연동으로 변경)
           msg += '\n<b>😃 휘발유 시세 🤩</b>\n'
           try:
-              res_m = requests.get("https://search.naver.com/search.naver?query=전국+휘발유+가격", headers=headers)
+              res_m = requests.get("https://finance.naver.com/marketindex/", headers=headers)
               soup_m = BeautifulSoup(res_m.text, 'html.parser')
-              text_m = soup_m.get_text(separator=' ', strip=True)
               
-              # '휘발유' 글자 주변의 [가격], [상승/하락], [변동폭]을 최대한 유연하게 찾음
-              match_m = re.search(r'휘발유\D*?([0-9,]{4,5}\.[0-9]{1,2})\D*?(상승|하락|보합)\D*?([0-9.]+)', text_m)
-              
-              if match_m:
-                  p_val, p_dir, p_amt = match_m.groups()
-                  msg += f'<b>{p_val}원</b> (전일대비 {p_dir} {p_amt}원)\n'
+              # '국내 휘발유' 전용 박스 타겟팅
+              gas_box = soup_m.find('a', href=re.compile('marketindexCd=OIL_GAS'))
+              if gas_box:
+                  val = gas_box.find(class_='value').get_text(strip=True)
+                  change = gas_box.find(class_='change').get_text(strip=True)
+                  blind_tag = gas_box.find(class_='blind')
+                  blind = blind_tag.get_text(strip=True) if blind_tag else ""
+                  
+                  # 상승/하락 직관적인 기호 적용
+                  sign = "🔺상승 " if blind == "상승" else "🔻하락 " if blind == "하락" else ""
+                  msg += f'<b>{val}원</b> (전일대비 {sign}{change})\n'
               else:
-                  # 상승/하락 글자가 없더라도 '가격'만은 무조건 잡아내기 위한 2차 방어선
-                  fallback = re.search(r'휘발유\D*?([0-9,]{4,5}\.[0-9]{1,2})', text_m)
-                  if fallback:
-                      msg += f'<b>{fallback.group(1)}원</b> (등락폭 수집 지연)\n'
-                  else:
-                      msg += '시세 수집 불가 (네이버 보안 차단 등 일시 오류)\n'
+                  msg += '시세 수집 불가 (금융 데이터 지연)\n'
           except:
               msg += '시세 시스템 접속 오류\n'
 
