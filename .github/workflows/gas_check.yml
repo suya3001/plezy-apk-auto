@@ -2,7 +2,9 @@ name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
+    # 1. 한국 시간 아침 7시 정각 (UTC 22:00)
     - cron: '0 22 * * *'
+    # 2. 한국 시간 오후 5시 정각 (UTC 08:00)
     - cron: '0 8 * * *'
   workflow_dispatch:
 
@@ -32,18 +34,19 @@ jobs:
           date_str = f"{now_kst.year}년{now_kst.month}월{now_kst.day}일"
           time_str = now_kst.strftime('%H:%M')
 
+          # 1. 날씨 제목 로직 (오전 12시 기준)
+          weather_title = "출근길" if now_kst.hour < 12 else "퇴근길"
+
           stations = [
               {'name': '오산 SK참존주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002075'},
               {'name': '마도 지성주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002055'},
               {'name': '오산 운암뜰주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002576'}
           ]
 
-          # HTML 태그 <b>를 사용하여 굵은 글씨 강조 (시인성 향상)
-          msg = f'<b>⛽ 주유소 실시간 가격 및 유가 전망 알림 ⛽</b>\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
+          msg = f'<b>⛽ 주유소 실시간 가격 ⛽</b>\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
           headers = {'User-Agent': 'Mozilla/5.0'}
 
           current_prices = []
-
           for s in stations:
               try:
                   res = requests.get(s['url'], headers=headers)
@@ -57,11 +60,9 @@ jobs:
                   msg += f'❌ {s["name"]}: 접속 실패\n'
                   current_prices.append("실패")
 
-          # 호칭 변경
           msg += f'\n<b>사랑하는 진수님</b> 오늘도 안전운전 하세요! 🚗\n\n'
 
-          msg += '<b>😃내일의 유가 및 전망 정보😃</b>\n'
-          
+          msg += '<b>😃 내일의 유가 및 전망 정보 😃</b>\n'
           try:
               search_url = "https://search.naver.com/search.naver?where=news&query=기름값+전망+전국평균"
               res_news = requests.get(search_url, headers=headers)
@@ -70,14 +71,11 @@ jobs:
               news_title = first_news.get_text() if first_news else "유가 변동성 주시 필요"
               
               if "인상" in news_title or "오름세" in news_title or "상승" in news_title:
-                  diff = 5
-                  trend_word = "오를"
+                  diff, trend_word = 5, "오를"
               elif "인하" in news_title or "내림세" in news_title or "하락" in news_title:
-                  diff = -5
-                  trend_word = "내릴"
+                  diff, trend_word = -5, "내릴"
               else:
-                  diff = 0
-                  trend_word = "큰 변동 없이 비슷할"
+                  diff, trend_word = 0, "큰 변동 없이 비슷할"
               
               for i, s in enumerate(stations):
                   p = current_prices[i].replace(',', '')
@@ -86,19 +84,39 @@ jobs:
                       msg += f'✔️ {s["name"]}: <b>{future_p}원</b>(예상)\n'
                   else:
                       msg += f'✔️ {s["name"]}: 데이터 수집중\n'
-                      
-              msg += f'\n📢 관련 뉴스: {news_title}\n'
-              msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다. 주유에 참고하세요!\n\n'
-              
-              # 지역별 최저가/최고가를 직접 확인할 수 있는 스마트 링크 추가
-              msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
-              msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 가격 보기</a>\n'
-              msg += '👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">화성시 마도면 주유소 가격 보기</a>\n'
-              
           except:
-              msg += '데이터 분석 중 오류가 발생했습니다.'
+              msg += '전망 데이터 분석 실패\n'
 
-          # 텔레그램 전송 시 HTML 파싱 모드 활성화
+          msg += '\n<b>😃 휘발유 시세 🤩</b>\n'
+          try:
+              res_market = requests.get("https://search.naver.com/search.naver?query=전국+휘발유+가격", headers=headers)
+              soup_market = BeautifulSoup(res_market.text, 'html.parser')
+              text_market = soup_market.get_text(separator=' ', strip=True)
+              match_market = re.search(r'([0-9,]{4,5}\.[0-9]{2})\s*전일대비\s*(상승|하락|보합)\s*([0-9,.]*)\s*([+-]?[0-9,.]+%)', text_market)
+              if match_market:
+                  m_price, m_dir, m_amt, m_pct = match_market.groups()
+                  msg += f'<b>{m_price}</b> 전일대비 {m_dir}{m_amt}({m_pct})\n'
+          except:
+              msg += '시세 데이터 수집중\n'
+
+          msg += f'\n<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
+          try:
+              res_weather = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
+              soup_weather = BeautifulSoup(res_weather.text, 'html.parser')
+              temp = soup_weather.select_one(".todaytemp").get_text() if soup_weather.select_one(".todaytemp") else "확인불가"
+              desc = soup_weather.select_one(".cast_txt").get_text() if soup_weather.select_one(".cast_txt") else "맑음"
+              rain = soup_weather.select(".rainfall")[0].get_text() if soup_weather.select(".rainfall") else "0%"
+              msg += f'🌤️ 오산 날씨: {desc} ({temp}℃) / 비 올 확률 {rain}\n'
+          except:
+              msg += '🌤️ 오산 날씨 정보를 가져올 수 없습니다.\n'
+
+          msg += f'\n📢 관련 뉴스: {news_title}\n'
+          msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다. 주유에 참고하세요!\n\n'
+          
+          msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
+          msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 가격 보기</a>\n'
+          msg += '👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">화성시 마도면 주유소 가격 보기</a>\n'
+          
           bot_token = os.environ.get("TELEGRAM_TOKEN")
           chat_id = os.environ.get("TELEGRAM_CHAT_ID")
           url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
