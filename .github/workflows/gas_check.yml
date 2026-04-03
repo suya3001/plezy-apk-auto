@@ -2,8 +2,9 @@ name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
-    - cron: '30 21 * * *'  # 한국 시간 오전 06:30
-    - cron: '0 8 * * *'    # 한국 시간 오후 17:00
+    # 지연 방지를 위해 정각이 아닌 애매한 시간으로 조정해봅니다.
+    - cron: '27 21 * * *'  # 한국 시간 오전 06:27 (지출 목표 06:30)
+    - cron: '54 7 * * *'   # 한국 시간 오후 16:54 (지출 목표 17:00)
   workflow_dispatch:
 
 jobs:
@@ -28,9 +29,16 @@ jobs:
           from bs4 import BeautifulSoup
           from datetime import datetime, timedelta
 
+          # 한국 시간 계산
           now_kst = datetime.utcnow() + timedelta(hours=9)
-          date_str = f"{now_kst.year}년{now_kst.month}월{now_kst.day}일"
-          time_str = now_kst.strftime('%H:%M')
+          
+          # 요일 계산 한글 변환
+          weekdays = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
+          weekday_str = weekdays[now_kst.weekday()]
+          
+          # 날짜/시간 포맷 변경 (진수님 요청 사항)
+          date_str = f"{now_kst.year}년 {now_kst.month}월 {now_kst.day}일 {weekday_str}"
+          time_str = now_kst.strftime('%H시 %M분')
 
           weather_title = "출근길" if now_kst.hour < 12 else "퇴근길"
 
@@ -119,7 +127,6 @@ jobs:
           msg += f'\n📢 관련 뉴스: {news_title}\n'
           msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다.\n\n'
           
-          # 한 줄 정렬 파트 수정
           msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
           msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 보기</a>   |   👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">마도면 주유소 보기</a>\n'
           
