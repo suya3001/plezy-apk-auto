@@ -2,9 +2,10 @@ name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
-    # 지연 방지를 위해 정각이 아닌 애매한 시간으로 조정해봅니다.
-    - cron: '27 21 * * *'  # 한국 시간 오전 06:27 (지출 목표 06:30)
-    - cron: '54 7 * * *'   # 한국 시간 오후 16:54 (지출 목표 17:00)
+    # 한국 시간 기준 오전 05:23분 실행 (UTC 20:23)
+    - cron: '23 20 * * *'
+    # 한국 시간 기준 오후 03:16분 실행 (UTC 06:16)
+    - cron: '16 6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -36,7 +37,7 @@ jobs:
           weekdays = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
           weekday_str = weekdays[now_kst.weekday()]
           
-          # 날짜/시간 포맷 변경 (진수님 요청 사항)
+          # 날짜/시간 포맷 (요청하신 00시 00분 형식)
           date_str = f"{now_kst.year}년 {now_kst.month}월 {now_kst.day}일 {weekday_str}"
           time_str = now_kst.strftime('%H시 %M분')
 
