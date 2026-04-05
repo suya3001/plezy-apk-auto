@@ -103,11 +103,12 @@ jobs:
           except:
               msg += '시세 시스템 접속 오류\n'
 
-          msg += f'\n<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
+          msg += f'\n'
           try:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
               soup_w = BeautifulSoup(res_w.text, 'html.parser')
               
+              # --- 1. 오늘 날씨 파싱 ---
               info_box = soup_w.find('div', class_='weather_info')
               text_w = info_box.get_text(separator=' ', strip=True) if info_box else ""
               t_m = re.search(r'현재 온도\s*([0-9.-]+)', text_w)
@@ -116,21 +117,22 @@ jobs:
               weather_tag = soup_w.select_one('.weather_info .summary .weather')
               desc = weather_tag.get_text(strip=True) if weather_tag else "상태확인불가"
               
-              # 강수량 또는 오전/오후 강수확률 절대 놓치지 않는 로직
               current_rain = re.search(r'강수\s*([0-9.]+mm)', text_w)
+              week_items = soup_w.select('.week_item')
               
               if current_rain:
                   rain_info = f"현재 강수량 {current_rain.group(1)}"
               else:
-                  # 네이버 주간 예보의 '오늘' 칸에 있는 비 올 확률 태그를 직접 긁어옴
-                  rain_tags = soup_w.select('.week_item.today .rainfall')
-                  if rain_tags and len(rain_tags) >= 2:
-                      am_rain = rain_tags[0].get_text(strip=True)
-                      pm_rain = rain_tags[1].get_text(strip=True)
-                      rain_info = f"비 올 확률 오전 {am_rain}, 오후 {pm_rain}"
+                  if len(week_items) > 0:
+                      rain_tags = week_items[0].select('.rainfall')
+                      if len(rain_tags) >= 2:
+                          am_rain = rain_tags[0].get_text(strip=True)
+                          pm_rain = rain_tags[1].get_text(strip=True)
+                          rain_info = f"비 올 확률 오전 {am_rain}, 오후 {pm_rain}"
+                      else:
+                          rain_info = "비 올 확률 0%"
                   else:
-                      fallback = re.search(r'강수확률\s*([0-9]+%)', text_w)
-                      rain_info = f"비 올 확률 {fallback.group(1)}" if fallback else "비 올 확률 0%"
+                      rain_info = "비 올 확률 0%"
                   
               if "비" in desc or "소나기" in desc: emoji = "🌧️"
               elif "흐림" in desc: emoji = "☁️"
@@ -138,21 +140,40 @@ jobs:
               elif "구름" in desc: emoji = "⛅"
               else: emoji = "🌤️"
                   
-              msg += f'{emoji} 오산 날씨: {desc} ({temp}℃) / {rain_info}\n'
+              msg += f'<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
+              msg += f'{emoji} 오산 날씨: {desc} ({temp}℃) / \n      {rain_info}\n'
+              
+              # --- 2. 내일 날씨 파싱 ---
+              if len(week_items) > 1:
+                  tom_item = week_items[1]
+                  
+                  tom_rain_tags = tom_item.select('.rainfall')
+                  if len(tom_rain_tags) >= 2:
+                      tom_am_rain = tom_rain_tags[0].get_text(strip=True)
+                      tom_pm_rain = tom_rain_tags[1].get_text(strip=True)
+                      tom_rain_info = f"비 올 확률 오전 {tom_am_rain}, 오후 {tom_pm_rain}"
+                  else:
+                      tom_rain_info = "비 올 확률 0%"
+                      
+                  # 내일 최저/최고 기온 추출
+                  lowest = tom_item.select_one('.lowest .num')
+                  highest = tom_item.select_one('.highest .num')
+                  tom_temp = f"{lowest.get_text(strip=True)}~{highest.get_text(strip=True)}" if lowest and highest else "확인불가"
+                      
+                  tom_desc_tag = tom_item.select_one('.blind')
+                  tom_desc = tom_desc_tag.get_text(strip=True) if tom_desc_tag else "상태확인불가"
+                  
+                  if "비" in tom_desc or "소나기" in tom_desc: tom_emoji = "🌧️"
+                  elif "흐림" in tom_desc: tom_emoji = "☁️"
+                  elif "눈" in tom_desc: tom_emoji = "❄️"
+                  elif "구름" in tom_desc: tom_emoji = "⛅"
+                  else: tom_emoji = "🌤️"
+                  
+                  msg += f'<b>🥰 내일의 {weather_title} 날씨 🤭</b>\n'
+                  msg += f'{tom_emoji} 오산 날씨: {tom_desc} ({tom_temp}℃) / \n      {tom_rain_info}\n'
+                  
           except:
               msg += '🌤️ 날씨 정보 수집 오류\n'
 
           msg += f'\n📢 관련 뉴스: {news_title}\n'
-          msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다.\n\n'
-          
-          msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
-          msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 보기</a>   |   👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">마도면 주유소 보기</a>\n'
-          
-          payload = {
-              'chat_id': os.environ['TELEGRAM_CHAT_ID'], 
-              'text': msg, 
-              'parse_mode': 'HTML',
-              'disable_web_page_preview': 'true'
-          }
-          requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage", data=payload)
-          EOF
+          msg +=
