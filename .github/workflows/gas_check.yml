@@ -42,7 +42,8 @@ jobs:
               {'name': '오산 운암뜰주유소', 'url': 'https://www.oilnow.co.kr/gas-station/A0002576'}
           ]
 
-          msg = f'<b>⛽ 주유소 실시간 가격 ⛽</b>\n\n날짜 : {date_str}\n시간 : {time_str}\n\n'
+          # 날짜 부분을 <b> 태그로 감싸서 진하게 변경했습니다!
+          msg = f'<b>⛽ 주유소 실시간 가격 ⛽</b>\n\n<b>날짜 : {date_str}</b>\n시간 : {time_str}\n\n'
           headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
           current_prices = []
@@ -147,16 +148,14 @@ jobs:
               msg += f'<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
               msg += f'{emoji} 오산 날씨: {desc} ({temp}℃) / \n      {rain_info}\n'
               
-              # --- 2. 내일 날씨 (수정된 부분) ---
+              # --- 2. 내일 날씨 ---
               tom_item = None
-              # 1) 두 번째 칸을 무작정 가져오지 않고 '내일'이라는 글자가 있는지 정밀 탐색
               for item in week_items:
                   day_tag = item.select_one('.day')
                   if day_tag and '내일' in day_tag.get_text():
                       tom_item = item
                       break
               
-              # 2) 네이버 오류로 '내일' 글자가 아예 증발했다면 어쩔 수 없이 다음 칸 선택
               if not tom_item and len(week_items) > 1:
                   tom_item = week_items[1]
                   
@@ -171,7 +170,6 @@ jobs:
                   else:
                       tom_rain_info = "비 올 확률 0%"
                       
-                  # 3) 온도 '확인불가' 해결: 숫자가 포함된 모든 텍스트를 강제로 추출
                   lowest = tom_item.select_one('.lowest')
                   highest = tom_item.select_one('.highest')
                   if lowest and highest:
