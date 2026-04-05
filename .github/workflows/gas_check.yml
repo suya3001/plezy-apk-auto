@@ -61,7 +61,6 @@ jobs:
 
           msg += f'\n<b>사랑하는 진수님</b> 오늘도 안전운전 하세요! 🚗\n\n'
 
-          # [안전장치] 뉴스 수집 실패 시 사용할 기본값 미리 설정!
           news_title = "뉴스 정보 수집 지연"
           trend_word = "수집 지연"
 
@@ -148,26 +147,41 @@ jobs:
               msg += f'<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
               msg += f'{emoji} 오산 날씨: {desc} ({temp}℃) / \n      {rain_info}\n'
               
-              # --- 2. 내일 날씨 ---
-              if len(week_items) > 1:
+              # --- 2. 내일 날씨 (수정된 부분) ---
+              tom_item = None
+              # 1) 두 번째 칸을 무작정 가져오지 않고 '내일'이라는 글자가 있는지 정밀 탐색
+              for item in week_items:
+                  day_tag = item.select_one('.day')
+                  if day_tag and '내일' in day_tag.get_text():
+                      tom_item = item
+                      break
+              
+              # 2) 네이버 오류로 '내일' 글자가 아예 증발했다면 어쩔 수 없이 다음 칸 선택
+              if not tom_item and len(week_items) > 1:
                   tom_item = week_items[1]
                   
+              if tom_item:
                   tom_rain_tags = tom_item.select('.rainfall')
                   if len(tom_rain_tags) >= 2:
                       tom_am_rain = tom_rain_tags[0].get_text(strip=True)
                       tom_pm_rain = tom_rain_tags[1].get_text(strip=True)
                       tom_rain_info = f"비 올 확률 오전 {tom_am_rain}, 오후 {tom_pm_rain}"
+                  elif len(tom_rain_tags) == 1:
+                      tom_rain_info = f"비 올 확률 {tom_rain_tags[0].get_text(strip=True)}"
                   else:
                       tom_rain_info = "비 올 확률 0%"
                       
-                  lowest = tom_item.select_one('.lowest .num')
-                  highest = tom_item.select_one('.highest .num')
-                  tom_temp = f"{lowest.get_text(strip=True)}~{highest.get_text(strip=True)}" if lowest and highest else "확인불가"
+                  # 3) 온도 '확인불가' 해결: 숫자가 포함된 모든 텍스트를 강제로 추출
+                  lowest = tom_item.select_one('.lowest')
+                  highest = tom_item.select_one('.highest')
+                  if lowest and highest:
+                      l_val = re.sub(r'[^0-9.-]', '', lowest.get_text())
+                      h_val = re.sub(r'[^0-9.-]', '', highest.get_text())
+                      tom_temp = f"{l_val}~{h_val}"
+                  else:
+                      tom_temp = "확인불가"
                       
-                  # 내일 날씨 상태 (맑음/흐림 등) 가져오기
-                  tom_desc_tag = tom_item.select_one('.weather_inner .blind')
-                  if not tom_desc_tag:
-                      tom_desc_tag = tom_item.select_one('.blind')
+                  tom_desc_tag = tom_item.select_one('.weather_inner .blind') or tom_item.select_one('.blind')
                   tom_desc = tom_desc_tag.get_text(strip=True) if tom_desc_tag else "상태확인불가"
                   
                   if "비" in tom_desc or "소나기" in tom_desc: tom_emoji = "🌧️"
