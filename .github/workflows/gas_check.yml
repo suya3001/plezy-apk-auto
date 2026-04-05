@@ -2,9 +2,7 @@ name: 주유소 실시간 가격 및 유가 전망 알림
 
 on:
   schedule:
-    # 한국 시간 기준 오전 05:23분 실행 (UTC 20:23)
     - cron: '23 20 * * *'
-    # 한국 시간 기준 오후 03:16분 실행 (UTC 06:16)
     - cron: '16 6 * * *'
   workflow_dispatch:
 
@@ -63,21 +61,28 @@ jobs:
 
           msg += f'\n<b>사랑하는 진수님</b> 오늘도 안전운전 하세요! 🚗\n\n'
 
+          # [안전장치] 뉴스 수집 실패 시 사용할 기본값 미리 설정!
+          news_title = "뉴스 정보 수집 지연"
+          trend_word = "수집 지연"
+
           msg += '<b>😃 내일의 유가 및 전망 정보 😃</b>\n'
           try:
               search_url = "https://search.naver.com/search.naver?where=news&query=기름값+전망+전국평균"
               res_news = requests.get(search_url, headers=headers)
               soup_news = BeautifulSoup(res_news.text, 'html.parser')
               first_news = soup_news.select_one(".news_tit")
-              news_title = first_news.get_text() if first_news else "유가 변동성 주시 필요"
               
-              if "인상" in news_title or "오름세" in news_title or "상승" in news_title:
-                  diff, trend_word = 5, "오를"
-              elif "인하" in news_title or "내림세" in news_title or "하락" in news_title:
-                  diff, trend_word = -5, "내릴"
+              if first_news:
+                  news_title = first_news.get_text()
+                  if "인상" in news_title or "오름세" in news_title or "상승" in news_title:
+                      diff, trend_word = 5, "오를"
+                  elif "인하" in news_title or "내림세" in news_title or "하락" in news_title:
+                      diff, trend_word = -5, "내릴"
+                  else:
+                      diff, trend_word = 0, "큰 변동 없이 비슷할"
               else:
-                  diff, trend_word = 0, "큰 변동 없이 비슷할"
-              
+                  diff = 0
+
               for i, s in enumerate(stations):
                   p = current_prices[i].replace(',', '')
                   if p.isdigit():
@@ -108,7 +113,7 @@ jobs:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
               soup_w = BeautifulSoup(res_w.text, 'html.parser')
               
-              # --- 1. 오늘 날씨 파싱 ---
+              # --- 1. 오늘 날씨 ---
               info_box = soup_w.find('div', class_='weather_info')
               text_w = info_box.get_text(separator=' ', strip=True) if info_box else ""
               t_m = re.search(r'현재 온도\s*([0-9.-]+)', text_w)
@@ -143,7 +148,7 @@ jobs:
               msg += f'<b>🥰 오늘의 {weather_title} 날씨 🤭</b>\n'
               msg += f'{emoji} 오산 날씨: {desc} ({temp}℃) / \n      {rain_info}\n'
               
-              # --- 2. 내일 날씨 파싱 ---
+              # --- 2. 내일 날씨 ---
               if len(week_items) > 1:
                   tom_item = week_items[1]
                   
@@ -155,12 +160,14 @@ jobs:
                   else:
                       tom_rain_info = "비 올 확률 0%"
                       
-                  # 내일 최저/최고 기온 추출
                   lowest = tom_item.select_one('.lowest .num')
                   highest = tom_item.select_one('.highest .num')
                   tom_temp = f"{lowest.get_text(strip=True)}~{highest.get_text(strip=True)}" if lowest and highest else "확인불가"
                       
-                  tom_desc_tag = tom_item.select_one('.blind')
+                  # 내일 날씨 상태 (맑음/흐림 등) 가져오기
+                  tom_desc_tag = tom_item.select_one('.weather_inner .blind')
+                  if not tom_desc_tag:
+                      tom_desc_tag = tom_item.select_one('.blind')
                   tom_desc = tom_desc_tag.get_text(strip=True) if tom_desc_tag else "상태확인불가"
                   
                   if "비" in tom_desc or "소나기" in tom_desc: tom_emoji = "🌧️"
@@ -176,4 +183,16 @@ jobs:
               msg += '🌤️ 날씨 정보 수집 오류\n'
 
           msg += f'\n📢 관련 뉴스: {news_title}\n'
-          msg +=
+          msg += f'💡 코멘트: 최근 뉴스 동향을 보면 이번 주 기름값은 <b>{trend_word}</b> 것으로 보입니다.\n\n'
+          
+          msg += '<b>🗺️ 지역별 실시간 주유소 확인</b>\n'
+          msg += '👉 <a href="https://search.naver.com/search.naver?query=오산+주유소">오산시 주유소 보기</a>   |   👉 <a href="https://search.naver.com/search.naver?query=화성+마도면+주유소">마도면 주유소 보기</a>\n'
+          
+          payload = {
+              'chat_id': os.environ['TELEGRAM_CHAT_ID'], 
+              'text': msg, 
+              'parse_mode': 'HTML',
+              'disable_web_page_preview': 'true'
+          }
+          requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage", data=payload)
+          EOF
