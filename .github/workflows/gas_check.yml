@@ -108,27 +108,37 @@ jobs:
               res_w = requests.get("https://search.naver.com/search.naver?query=오산+날씨", headers=headers)
               soup_w = BeautifulSoup(res_w.text, 'html.parser')
               
-              # 1. 온도 추출
+              # 1. 온도 및 현재 강수량 추출
               info_box = soup_w.find('div', class_='weather_info')
               text_w = info_box.get_text(separator=' ', strip=True) if info_box else ""
               t_m = re.search(r'현재 온도\s*([0-9.-]+)', text_w)
               temp = t_m.group(1) if t_m else "확인불가"
               
-              # 2. 날씨 상태 정확히 찝어내기 (네이버 태그 직접 조준)
               weather_tag = soup_w.select_one('.weather_info .summary .weather')
               desc = weather_tag.get_text(strip=True) if weather_tag else "상태확인불가"
               
-              # 3. 강수확률 OR 강수량 유연하게 추출
-              r_m = re.search(r'(강수확률\s*[0-9]+%|강수\s*[0-9.]+mm)', text_w)
-              if r_m:
-                  rain_info = r_m.group(1)
+              # 2. 날씨 전체 텍스트에서 '오전/오후 강수확률' 싹쓸이 검색
+              full_text = soup_w.get_text(separator=' ', strip=True)
+              current_rain = re.search(r'강수\s*([0-9.]+mm)', text_w)
+              
+              if current_rain:
+                  # 현재 진짜 비가 오고 있다면 강수량 표시
+                  rain_info = f"현재 강수량 {current_rain.group(1)}"
               else:
-                  rain_info = "비 올 확률 100%" if "비" in desc else "비 올 확률 0%"
+                  # 비가 안 오고 있다면 오늘 오전/오후 강수확률 찾기
+                  am_pm_rain = re.findall(r'(오전|오후)\s*강수확률\s*([0-9]+%)', full_text)
+                  if am_pm_rain:
+                      # 리스트에서 맨 앞의 2개(오늘 오전, 오후)만 가져오기
+                      today_rains = [f"{time} {prob}" for time, prob in am_pm_rain[:2]]
+                      rain_info = "비 올 확률 " + ", ".join(today_rains)
+                  else:
+                      rain_info = "비 올 확률 정보 없음"
                   
-              # 4. 이모지 변경
-              if "비" in desc: emoji = "🌧️"
+              # 3. 이모지 변경 (구름 추가)
+              if "비" in desc or "소나기" in desc: emoji = "🌧️"
               elif "흐림" in desc: emoji = "☁️"
               elif "눈" in desc: emoji = "❄️"
+              elif "구름" in desc: emoji = "⛅"
               else: emoji = "🌤️"
                   
               msg += f'{emoji} 오산 날씨: {desc} ({temp}℃) / {rain_info}\n'
