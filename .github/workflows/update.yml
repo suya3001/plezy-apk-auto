@@ -2,7 +2,8 @@ name: Plezy APK Auto Updater
 
 on:
   schedule:
-    - cron: '0 15 * * *'
+    # 한국 시간 기준 매일 아침 6시, 밤 12시에 자동으로 실행됩니다.
+    - cron: '0 15,21 * * *'
   workflow_dispatch:
 
 jobs:
@@ -17,24 +18,24 @@ jobs:
 
       - name: 최신버전 다운로드 및 압축 해제
         run: |
-          # /latest 대신 /releases API를 호출하여 전체 목록을 가져온 뒤, 가장 최신(첫 번째) 파일 추출
+          # /latest 대신 /releases API를 호출하여 전체 목록 중 가장 최신 파일 추출
           DOWNLOAD_URL=$(curl -s https://api.github.com/repos/edde746/plezy/releases | grep "browser_download_url.*arm64-v8a.tar.gz" | head -n 1 | cut -d '"' -f 4)
           wget $DOWNLOAD_URL -O plezy.tar.gz
           tar -xzvf plezy.tar.gz
           
-          # 에러 해결: 이름이 같아서 멈추는 현상을 막기 위해 복사 후 덮어쓰기
+          # 파일명 중복 에러 방지를 위한 처리
           APK_PATH=$(find . -name "*.apk" | head -n 1)
           cp "$APK_PATH" temp_plezy.apk
           mv temp_plezy.apk plezy.apk
 
-      - name: 기존 파일 삭제
+      - name: 기존 릴리즈 삭제
         run: |
           gh release delete latest_apk --cleanup-tag -y || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 압축 해제된 APK 업로드
+      - name: 최신 APK 업로드 및 배포
         run: |
-          gh release create latest_apk plezy.apk --title "최신 Plezy APK" --notes "자동으로 압축 해제된 파일입니다."
+          gh release create latest_apk plezy.apk --title "최신 Plezy APK" --notes "자동으로 추출된 최신 버전 파일입니다. (매일 2회 체크)"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
