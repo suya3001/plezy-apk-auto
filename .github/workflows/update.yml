@@ -17,7 +17,8 @@ jobs:
 
       - name: 최신버전 다운로드 및 압축 해제
         run: |
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/edde746/plezy/releases/latest | grep "browser_download_url.*arm64-v8a.tar.gz" | cut -d '"' -f 4)
+          # /latest 대신 /releases API를 호출하여 전체 목록을 가져온 뒤, 가장 최신(첫 번째) 파일 추출
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/edde746/plezy/releases | grep "browser_download_url.*arm64-v8a.tar.gz" | head -n 1 | cut -d '"' -f 4)
           wget $DOWNLOAD_URL -O plezy.tar.gz
           tar -xzvf plezy.tar.gz
           
