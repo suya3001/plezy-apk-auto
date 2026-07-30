@@ -31,20 +31,43 @@ jobs:
           # 1. 원본 API에서 최근 5개 릴리즈 정보(JSON) 가져오기
           curl -s "https://api.github.com/repos/edde746/plezy/releases?per_page=5" > releases.json
 
-          # 2. 파이썬 스크립트로 최신버전 + 이전버전 히스토리 번역 및 정리
+          # 2. 파이썬 스크립트로 최신버전 + 이전버전 히스토리 분할 번역 및 정리
           python3 -c "
           import json
+          import time
           from deep_translator import GoogleTranslator
 
           translator = GoogleTranslator(source='auto', target='ko')
 
           def safe_translate(text):
-              if not text or text.strip() == '':
+              if not text or not text.strip():
                   return '내용 없음'
-              try:
-                  return translator.translate(text)
-              except Exception as e:
-                  return f'번역 중 오류 발생: {e}'
+              
+              lines = text.split('\n')
+              translated_parts = []
+              current_chunk = ''
+
+              for line in lines:
+                  # 1000자 단위로 문단을 분할하여 번역 요청
+                  if len(current_chunk) + len(line) > 1000:
+                      if current_chunk.strip():
+                          try:
+                              translated_parts.append(translator.translate(current_chunk.strip()))
+                              time.sleep(0.4)
+                          except Exception:
+                              translated_parts.append(current_chunk.strip())
+                      current_chunk = line + '\n'
+                  else:
+                      current_chunk += line + '\n'
+
+              if current_chunk.strip():
+                  try:
+                      translated_parts.append(translator.translate(current_chunk.strip()))
+                      time.sleep(0.4)
+                  except Exception:
+                      translated_parts.append(current_chunk.strip())
+
+              return '\n'.join(translated_parts)
 
           with open('releases.json', 'r', encoding='utf-8') as f:
               data = json.load(f)
