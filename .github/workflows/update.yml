@@ -31,7 +31,7 @@ jobs:
           # 1. 원본 API에서 최근 5개 릴리즈 정보(JSON) 가져오기
           curl -s "https://api.github.com/repos/edde746/plezy/releases?per_page=5" > releases.json
 
-          # 2. 파이썬 스크립트로 최신버전 + 이전버전 히스토리 분할 번역 및 정리
+          # 2. 파이썬 스크립트로 상단 다운로드 링크 + 최신버전 + 이전버전 히스토리 분할 번역 및 정리
           python3 -c "
           import json
           import time
@@ -48,7 +48,6 @@ jobs:
               current_chunk = ''
 
               for line in lines:
-                  # 1000자 단위로 문단을 분할하여 번역 요청
                   if len(current_chunk) + len(line) > 1000:
                       if current_chunk.strip():
                           try:
@@ -87,9 +86,11 @@ jobs:
               if not download_url and latest.get('assets'):
                   download_url = latest['assets'][0].get('browser_download_url', '')
 
-              # 릴리즈 본문 작성 (최신 버전)
+              # 릴리즈 본문 작성 (상단 다운로드 바로가기 링크 추가)
               t_latest = safe_translate(latest_body)
-              output = f'## 🚀 최신 버전 ({version}) 업데이트 내역\n\n{t_latest}\n\n'
+              direct_apk_link = f'https://github.com/suya3001/plezy-apk-auto/releases/download/latest_apk/plezy_{version}.apk'
+              
+              output = f'### 📥 [{version} APK 파일 바로 다운로드받기]({direct_apk_link})\n\n---\n\n## 🚀 최신 버전 ({version}) 업데이트 내역\n\n{t_latest}\n\n'
 
               # 이전 버전 히스토리 작성 (최근 4개 추가)
               if len(data) > 1:
@@ -130,7 +131,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 히스토리가 포함된 최신 APK 업로드
+      - name: 상단 다운로드 링크가 포함된 최신 APK 업로드
         run: |
           gh release create latest_apk "${{ env.APK_FILE }}" \
             --title "Plezy 최신버전 (${{ env.VERSION }})" \
