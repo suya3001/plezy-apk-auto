@@ -16,9 +16,14 @@ jobs:
       - name: 저장소 체크아웃
         uses: actions/checkout@v4
 
-      - name: Python 및 번역 패키지 설치
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 번역 패키지 설치
         run: |
-          python3 -m pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install deep-translator
 
       - name: 최신버전 다운로드 및 히스토리 한국어 번역 추출
