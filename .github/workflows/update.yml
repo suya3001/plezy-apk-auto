@@ -1,3 +1,13 @@
+# ==============================================================
+# 🔐 공개 GitHub 저장소용: 이 YAML 파일 안에 API 키를 넣지 마세요.
+# API 키는 GitHub 웹페이지에서 딱 한 번 등록하면 됩니다.
+# 저장소 > Settings > Secrets and variables > Actions
+# > New repository secret
+# Name: GEMINI_API_KEY
+# Secret: 발급받은 실제 API 키 붙여넣기 (따옴표 없이)
+# > Add secret
+# 이후 이 YAML은 수정할 필요가 없습니다.
+# ==============================================================
 name: Plezy APK Auto Updater
 
 on:
@@ -21,94 +31,182 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 번역 패키지 설치
-        run: |
-          python -m pip install --upgrade pip
-          pip install deep-translator
-
+      # deep-translator 설치 불필요: Python 표준 라이브러리로 공식 API 호출
       - name: 최신버전 다운로드 및 히스토리 한국어 번역 추출
+        env:
+          # 🔒 위 GitHub Secret을 자동으로 읽습니다. 여기에 직접 키를 쓰지 마세요.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           # 1. 원본 API에서 최근 5개 릴리즈 정보(JSON) 가져오기
           curl -s "https://api.github.com/repos/edde746/plezy/releases?per_page=5" > releases.json
 
-          # 2. 파이썬 스크립트로 상단 다운로드 링크 + 최신버전 + 이전버전 히스토리 분할 번역 및 정리
-          python3 -c "
+          # 2. 공식 Gemini 무료 API로 릴리즈 노트를 한 번에 번역, 결과 검증
+          python3 - <<'PYTHON'
           import json
-          import time
-          from deep_translator import GoogleTranslator
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
 
-          translator = GoogleTranslator(source='auto', target='ko')
+          MODEL = 'gemini-3.1-flash-lite'
+          API_URL = f'https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent'
 
-          def safe_translate(text):
-              if not text or not text.strip():
-                  return '내용 없음'
-              
-              lines = text.split('\n')
-              translated_parts = []
-              current_chunk = ''
+          def fail(message):
+              print(f'::error::{message}', file=sys.stderr)
+              raise SystemExit(1)
 
-              for line in lines:
-                  if len(current_chunk) + len(line) > 1000:
-                      if current_chunk.strip():
-                          try:
-                              translated_parts.append(translator.translate(current_chunk.strip()))
-                              time.sleep(0.4)
-                          except Exception:
-                              translated_parts.append(current_chunk.strip())
-                      current_chunk = line + '\n'
-                  else:
-                      current_chunk += line + '\n'
+          api_key = os.getenv('GEMINI_API_KEY', '').strip()
+          if not api_key:
+              fail('GitHub Actions Secret GEMINI_API_KEY가 없습니다. 번역 없이 배포하지 않습니다.')
 
-              if current_chunk.strip():
-                  try:
-                      translated_parts.append(translator.translate(current_chunk.strip()))
-                      time.sleep(0.4)
-                  except Exception:
-                      translated_parts.append(current_chunk.strip())
+          try:
+              data = json.loads(Path('releases.json').read_text(encoding='utf-8'))
+          except (OSError, ValueError) as exc:
+              fail(f'릴리즈 정보 읽기 실패: {exc}')
 
-              return '\n'.join(translated_parts)
+          if not isinstance(data, list) or not data:
+              fail('GitHub 릴리즈 목록이 비어 있거나 잘못된 응답입니다.')
 
-          with open('releases.json', 'r', encoding='utf-8') as f:
-              data = json.load(f)
+          # 최신 릴리즈 + 이전 릴리즈 최대 4개의 본문만 번역
+          releases = data[:5]
+          contents = {}
+          for i, release in enumerate(releases):
+              if i and not release.get('tag_name'):
+                  continue
+              body = (release.get('body') or '').strip()
+              if body:
+                  contents[i] = body
 
-          if isinstance(data, list) and len(data) > 0:
-              # 최신 버전 정보
-              latest = data[0]
-              version = latest.get('tag_name', 'latest')
-              latest_body = latest.get('body', '')
+          translated = {}
+          if contents:
+              schema = {
+                  'type': 'OBJECT',
+                  'properties': {
+                      'translations': {
+                          'type': 'ARRAY',
+                          'items': {
+                              'type': 'OBJECT',
+                              'properties': {
+                                  'id': {'type': 'INTEGER'},
+                                  'text': {'type': 'STRING'},
+                              },
+                              'required': ['id', 'text'],
+                          },
+                      },
+                  },
+                  'required': ['translations'],
+              }
+              instructions = (
+                  'Translate the following release notes from English into fluent Korean. '
+                  'Return one translation for each input id, keeping the id unchanged. '
+                  'Do not summarize, omit, explain, or add content. '
+                  'Preserve Markdown structure (headings, lists, newlines), fenced/inline code, '
+                  'HTML tags, all URLs, file names, commands, version numbers, and proper names. '
+                  'Translate normal English prose, including headings, into Korean. '
+                  'If an input consists solely of non-translatable technical tokens, copy them. '
+                  'Return only structured JSON matching the specified schema.'
+              )
+              items = [{'id': i, 'text': text} for i, text in contents.items()]
+              payload = {
+                  'contents': [{
+                      'role': 'user',
+                      'parts': [{'text': instructions + '\n\n' + json.dumps(items, ensure_ascii=False)}],
+                  }],
+                  'generationConfig': {
+                      'temperature': 0,
+                      'maxOutputTokens': 32768,
+                      'responseMimeType': 'application/json',
+                      'responseSchema': schema,
+                      'thinkingConfig': {'thinkingLevel': 'minimal'},
+                  },
+              }
+              request = urllib.request.Request(
+                  API_URL,
+                  data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                  headers={
+                      'Content-Type': 'application/json',
+                      'x-goog-api-key': api_key,
+                  },
+                  method='POST',
+              )
+              try:
+                  # 재시도와 sleep 없음. 요청 실패/시간 초과 즉시 중단
+                  with urllib.request.urlopen(request, timeout=25) as res:
+                      api_data = json.load(res)
+              except urllib.error.HTTPError as exc:
+                  # 키나 입력 본문 등 민감한 데이터는 로그에 노출하지 않음
+                  fail(f'Gemini 번역 API HTTP {exc.code}. 키, 무료 할당량, 모델 접근 권한 확인 필요.')
+              except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                  fail(f'Gemini 번역 API 통신/응답 오류: {type(exc).__name__}')
 
-              # APK 다운로드 URL 찾기
-              download_url = ''
-              for asset in latest.get('assets', []):
-                  if 'arm64-v8a.tar.gz' in asset.get('name', ''):
-                      download_url = asset.get('browser_download_url', '')
-                      break
-              if not download_url and latest.get('assets'):
-                  download_url = latest['assets'][0].get('browser_download_url', '')
+              try:
+                  candidate = api_data['candidates'][0]
+                  if candidate.get('finishReason') != 'STOP':
+                      fail(f"번역이 정상 완료되지 않았습니다: {candidate.get('finishReason')}")
+                  raw = ''.join(part.get('text', '') for part in candidate['content']['parts'])
+                  result = json.loads(raw)['translations']
+              except (KeyError, IndexError, TypeError, ValueError) as exc:
+                  fail(f'번역 응답 JSON 파싱 실패: {type(exc).__name__}')
 
-              # 릴리즈 본문 작성 (상단 다운로드 바로가기 링크 추가)
-              t_latest = safe_translate(latest_body)
-              direct_apk_link = f'https://github.com/suya3001/plezy-apk-auto/releases/download/latest_apk/plezy_{version}.apk'
-              
-              output = f'### 📥 [{version} APK 파일 바로 다운로드받기]({direct_apk_link})\n\n---\n\n## 🚀 최신 버전 ({version}) 업데이트 내역\n\n{t_latest}\n\n'
+              if not isinstance(result, list) or len(result) != len(contents):
+                  fail('번역 항목 수가 원문과 다릅니다.')
+              for item in result:
+                  if not isinstance(item, dict):
+                      fail('번역 항목 형식이 올바르지 않습니다.')
+                  idx, ko = item.get('id'), item.get('text')
+                  if type(idx) is not int or idx not in contents or idx in translated:
+                      fail('번역 ID 누락, 중복 또는 불일치가 발생했습니다.')
+                  if not isinstance(ko, str) or not ko.strip():
+                      fail(f'번역 ID {idx}: 결과가 비어 있습니다.')
+                  ko = ko.strip()
+                  source = contents[idx]
+                  # 코드/링크/URL만 있는 메모에는 한국어가 없어도 정상일 수 있음
+                  prose = re.sub(r'```.*?```|`[^`]*`|https?://\S+', '', source, flags=re.S)
+                  needs_ko = bool(re.search(r'[A-Za-z]{3,}', prose))
+                  if needs_ko and ko == source:
+                      fail(f'번역 ID {idx}: 영문 원문이 그대로 반환됐습니다.')
+                  if needs_ko and not re.search(r'[가-힣]', ko):
+                      fail(f'번역 ID {idx}: 한국어 번역을 확인할 수 없습니다.')
+                  for url in re.findall(r'https?://[^\s)>]+', source):
+                      if url not in ko:
+                          fail(f'번역 ID {idx}: 원문의 URL이 누락/변경됐습니다.')
+                  if source.count('```') != ko.count('```'):
+                      fail(f'번역 ID {idx}: Markdown 코드 블록이 변형됐습니다.')
+                  translated[idx] = ko
+              if set(translated) != set(contents):
+                  fail('번역 결과 일부가 누락됐습니다.')
 
-              # 이전 버전 히스토리 작성 (최근 4개 추가)
-              if len(data) > 1:
-                  output += '---\n### 📜 지나간 버전 업데이트 히스토리\n\n'
-                  for rel in data[1:]:
-                      p_tag = rel.get('tag_name', '')
-                      p_body = rel.get('body', '')
-                      if p_tag:
-                          t_prev = safe_translate(p_body)
-                          output += f'<details>\n<summary><b>버전 {p_tag} 내역 보기 (클릭)</b></summary>\n\n{t_prev}\n\n</details>\n\n'
+          latest = releases[0]
+          version = latest.get('tag_name', 'latest')
+          # 기존 APK 다운로드 URL 선택 로직은 변경하지 않음
+          download_url = ''
+          for asset in latest.get('assets', []):
+              if 'arm64-v8a.tar.gz' in asset.get('name', ''):
+                  download_url = asset.get('browser_download_url', '')
+                  break
+          if not download_url and latest.get('assets'):
+              download_url = latest['assets'][0].get('browser_download_url', '')
 
-              with open('version.txt', 'w', encoding='utf-8') as f:
-                  f.write(version)
-              with open('download_url.txt', 'w', encoding='utf-8') as f:
-                  f.write(download_url)
-              with open('translated_body.txt', 'w', encoding='utf-8') as f:
-                  f.write(output)
-          "
+          t_latest = translated.get(0, '내용 없음')
+          direct_apk_link = f'https://github.com/suya3001/plezy-apk-auto/releases/download/latest_apk/plezy_{version}.apk'
+          output = f'### 📥 [{version} APK 파일 바로 다운로드받기]({direct_apk_link})\n\n---\n\n## 🚀 최신 버전 ({version}) 업데이트 내역\n\n{t_latest}\n\n'
+
+          if len(releases) > 1:
+              output += '---\n### 📜 지나간 버전 업데이트 히스토리\n\n'
+              for i, rel in enumerate(releases[1:], start=1):
+                  p_tag = rel.get('tag_name', '')
+                  if p_tag:
+                      t_prev = translated.get(i, '내용 없음')
+                      output += f'<details>\n<summary><b>버전 {p_tag} 내역 보기 (클릭)</b></summary>\n\n{t_prev}\n\n</details>\n\n'
+
+          # 번역/검증이 모두 통과한 경우에만 기존 워크플로가 쓰는 파일을 작성
+          Path('version.txt').write_text(version, encoding='utf-8')
+          Path('download_url.txt').write_text(download_url, encoding='utf-8')
+          Path('translated_body.txt').write_text(output, encoding='utf-8')
+          print(f'한국어 번역 및 검증 성공: {len(contents)}개 본문, 버전 {version}')
+          PYTHON
 
           # 3. 환경변수 및 파일 다운로드 준비
           VERSION=$(cat version.txt)
