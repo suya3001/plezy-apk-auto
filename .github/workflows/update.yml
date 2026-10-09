@@ -133,7 +133,7 @@ jobs:
               )
               try:
                   # 재시도와 sleep 없음. 요청 실패/시간 초과 즉시 중단
-                  with urllib.request.urlopen(request, timeout=25) as res:
+                  with urllib.request.urlopen(request, timeout=120) as res:
                       api_data = json.load(res)
               except urllib.error.HTTPError as exc:
                   # 키나 입력 본문 등 민감한 데이터는 로그에 노출하지 않음
