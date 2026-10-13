@@ -36,9 +36,17 @@ jobs:
         env:
           # 🔒 위 GitHub Secret을 자동으로 읽습니다. 여기에 직접 키를 쓰지 마세요.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 1. 원본 API에서 최근 5개 릴리즈 정보(JSON) 가져오기
-          curl -s "https://api.github.com/repos/edde746/plezy/releases?per_page=5" > releases.json
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-max-time 120 \
+            --connect-timeout 15 --max-time 45 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            --write-out 'GitHub releases HTTP %{http_code}\n' \
+            --output releases.json \
+            "https://api.github.com/repos/edde746/plezy/releases?per_page=5"
 
           # 2. 공식 Gemini 무료 API로 릴리즈 노트를 한 번에 번역, 결과 검증
           python3 - <<'PYTHON'
@@ -46,6 +54,7 @@ jobs:
           import os
           import re
           import sys
+          import time
           import urllib.error
           import urllib.request
           from pathlib import Path
@@ -58,8 +67,6 @@ jobs:
               raise SystemExit(1)
 
           api_key = os.getenv('GEMINI_API_KEY', '').strip()
-          if not api_key:
-              fail('GitHub Actions Secret GEMINI_API_KEY가 없습니다. 번역 없이 배포하지 않습니다.')
 
           try:
               data = json.loads(Path('releases.json').read_text(encoding='utf-8'))
@@ -80,6 +87,7 @@ jobs:
                   contents[i] = body
 
           translated = {}
+          translation_fallback = False
           if contents:
               schema = {
                   'type': 'OBJECT',
@@ -131,52 +139,72 @@ jobs:
                   },
                   method='POST',
               )
-              try:
-                  # 재시도와 sleep 없음. 요청 실패/시간 초과 즉시 중단
-                  with urllib.request.urlopen(request, timeout=120) as res:
-                      api_data = json.load(res)
-              except urllib.error.HTTPError as exc:
-                  # 키나 입력 본문 등 민감한 데이터는 로그에 노출하지 않음
-                  fail(f'Gemini 번역 API HTTP {exc.code}. 키, 무료 할당량, 모델 접근 권한 확인 필요.')
-              except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-                  fail(f'Gemini 번역 API 통신/응답 오류: {type(exc).__name__}')
+              def translation_fail(message):
+                  raise ValueError(message)
 
-              try:
-                  candidate = api_data['candidates'][0]
-                  if candidate.get('finishReason') != 'STOP':
-                      fail(f"번역이 정상 완료되지 않았습니다: {candidate.get('finishReason')}")
-                  raw = ''.join(part.get('text', '') for part in candidate['content']['parts'])
-                  result = json.loads(raw)['translations']
-              except (KeyError, IndexError, TypeError, ValueError) as exc:
-                  fail(f'번역 응답 JSON 파싱 실패: {type(exc).__name__}')
+              # 최초 요청 + 재시도 1회. 응답 파싱/검증 실패도 재시도 대상입니다.
+              for attempt in range(2):
+                  attempt_translated = {}
+                  try:
+                      if not api_key:
+                          translation_fail('GEMINI_API_KEY가 없습니다.')
+                      try:
+                          with urllib.request.urlopen(request, timeout=120) as res:
+                              api_data = json.load(res)
+                      except urllib.error.HTTPError as exc:
+                          # 키나 입력 본문 등 민감한 데이터는 로그에 노출하지 않음
+                          translation_fail(f'Gemini 번역 API HTTP {exc.code}. 키, 무료 할당량, 모델 접근 권한 확인 필요.')
+                      except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                          translation_fail(f'Gemini 번역 API 통신/응답 오류: {type(exc).__name__}')
 
-              if not isinstance(result, list) or len(result) != len(contents):
-                  fail('번역 항목 수가 원문과 다릅니다.')
-              for item in result:
-                  if not isinstance(item, dict):
-                      fail('번역 항목 형식이 올바르지 않습니다.')
-                  idx, ko = item.get('id'), item.get('text')
-                  if type(idx) is not int or idx not in contents or idx in translated:
-                      fail('번역 ID 누락, 중복 또는 불일치가 발생했습니다.')
-                  if not isinstance(ko, str) or not ko.strip():
-                      fail(f'번역 ID {idx}: 결과가 비어 있습니다.')
-                  ko = ko.strip()
-                  source = contents[idx]
-                  # 코드/링크/URL만 있는 메모에는 한국어가 없어도 정상일 수 있음
-                  prose = re.sub(r'```.*?```|`[^`]*`|https?://\S+', '', source, flags=re.S)
-                  needs_ko = bool(re.search(r'[A-Za-z]{3,}', prose))
-                  if needs_ko and ko == source:
-                      fail(f'번역 ID {idx}: 영문 원문이 그대로 반환됐습니다.')
-                  if needs_ko and not re.search(r'[가-힣]', ko):
-                      fail(f'번역 ID {idx}: 한국어 번역을 확인할 수 없습니다.')
-                  for url in re.findall(r'https?://[^\s)>]+', source):
-                      if url not in ko:
-                          fail(f'번역 ID {idx}: 원문의 URL이 누락/변경됐습니다.')
-                  if source.count('```') != ko.count('```'):
-                      fail(f'번역 ID {idx}: Markdown 코드 블록이 변형됐습니다.')
-                  translated[idx] = ko
-              if set(translated) != set(contents):
-                  fail('번역 결과 일부가 누락됐습니다.')
+                      try:
+                          candidate = api_data['candidates'][0]
+                          if candidate.get('finishReason') != 'STOP':
+                              translation_fail(f"번역이 정상 완료되지 않았습니다: {candidate.get('finishReason')}")
+                          raw = ''.join(part.get('text', '') for part in candidate['content']['parts'])
+                          result = json.loads(raw)['translations']
+                      except (KeyError, IndexError, TypeError, ValueError) as exc:
+                          translation_fail(f'번역 응답 JSON 파싱 실패: {type(exc).__name__}')
+
+                      if not isinstance(result, list) or len(result) != len(contents):
+                          translation_fail('번역 항목 수가 원문과 다릅니다.')
+                      for item in result:
+                          if not isinstance(item, dict):
+                              translation_fail('번역 항목 형식이 올바르지 않습니다.')
+                          idx, ko = item.get('id'), item.get('text')
+                          if type(idx) is not int or idx not in contents or idx in attempt_translated:
+                              translation_fail('번역 ID 누락, 중복 또는 불일치가 발생했습니다.')
+                          if not isinstance(ko, str) or not ko.strip():
+                              translation_fail(f'번역 ID {idx}: 결과가 비어 있습니다.')
+                          ko = ko.strip()
+                          source = contents[idx]
+                          # 코드/링크/URL만 있는 메모에는 한국어가 없어도 정상일 수 있음
+                          prose = re.sub(r'```.*?```|`[^`]*`|https?://\S+', '', source, flags=re.S)
+                          needs_ko = bool(re.search(r'[A-Za-z]{3,}', prose))
+                          if needs_ko and ko == source:
+                              translation_fail(f'번역 ID {idx}: 영문 원문이 그대로 반환됐습니다.')
+                          if needs_ko and not re.search(r'[가-힣]', ko):
+                              translation_fail(f'번역 ID {idx}: 한국어 번역을 확인할 수 없습니다.')
+                          for url in re.findall(r'https?://[^\s)>]+', source):
+                              if url not in ko:
+                                  translation_fail(f'번역 ID {idx}: 원문의 URL이 누락/변경됐습니다.')
+                          if source.count('```') != ko.count('```'):
+                              translation_fail(f'번역 ID {idx}: Markdown 코드 블록이 변형됐습니다.')
+                          attempt_translated[idx] = ko
+                      if set(attempt_translated) != set(contents):
+                          translation_fail('번역 결과 일부가 누락됐습니다.')
+
+                      translated = attempt_translated
+                      break
+                  except (ValueError, KeyError, IndexError, TypeError, OSError) as exc:
+                      if attempt == 0 and api_key:
+                          print(f'::warning::번역 첫 시도 실패: {exc}. 5초 후 1회 재시도합니다.')
+                          time.sleep(5)
+                      else:
+                          print(f'::warning::번역 실패: {exc}. 원문으로 APK 배포를 계속합니다.')
+                          translated = dict(contents)
+                          translation_fallback = True
+                          break
 
           latest = releases[0]
           version = latest.get('tag_name', 'latest')
@@ -193,6 +221,9 @@ jobs:
           direct_apk_link = f'https://github.com/suya3001/plezy-apk-auto/releases/download/latest_apk/plezy_{version}.apk'
           output = f'### 📥 [{version} APK 파일 바로 다운로드받기]({direct_apk_link})\n\n---\n\n## 🚀 최신 버전 ({version}) 업데이트 내역\n\n{t_latest}\n\n'
 
+          if translation_fallback:
+              output = '> 한국어 번역에 실패하여 릴리즈 노트를 원문으로 제공합니다. APK는 최신 버전입니다.\n\n' + output
+
           if len(releases) > 1:
               output += '---\n### 📜 지나간 버전 업데이트 히스토리\n\n'
               for i, rel in enumerate(releases[1:], start=1):
@@ -201,11 +232,12 @@ jobs:
                       t_prev = translated.get(i, '내용 없음')
                       output += f'<details>\n<summary><b>버전 {p_tag} 내역 보기 (클릭)</b></summary>\n\n{t_prev}\n\n</details>\n\n'
 
-          # 번역/검증이 모두 통과한 경우에만 기존 워크플로가 쓰는 파일을 작성
+          # 검증된 번역 또는 원문 폴백으로 배포 파일을 작성
           Path('version.txt').write_text(version, encoding='utf-8')
           Path('download_url.txt').write_text(download_url, encoding='utf-8')
           Path('translated_body.txt').write_text(output, encoding='utf-8')
-          print(f'한국어 번역 및 검증 성공: {len(contents)}개 본문, 버전 {version}')
+          mode = '원문 폴백' if translation_fallback else '한국어 번역'
+          print(f'릴리즈 노트 준비 완료 ({mode}): {len(contents)}개 본문, 버전 {version}')
           PYTHON
 
           # 3. 환경변수 및 파일 다운로드 준비
