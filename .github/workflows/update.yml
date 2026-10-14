@@ -38,7 +38,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          # 1. 원본 API에서 최근 3개 릴리즈 정보(JSON) 가져오기
+          # 1. 원본 API에서 최근 2개 릴리즈 정보(JSON) 가져오기
           curl --fail --silent --show-error --location \
             --retry 3 --retry-delay 2 --retry-max-time 120 \
             --connect-timeout 15 --max-time 45 \
@@ -46,7 +46,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             --write-out 'GitHub releases HTTP %{http_code}\n' \
             --output releases.json \
-            "https://api.github.com/repos/edde746/plezy/releases?per_page=3"
+            "https://api.github.com/repos/edde746/plezy/releases?per_page=2"
 
           # 현재 내 저장소의 latest_apk 릴리즈 상태 확인 (없어도 무시)
           curl --silent --location \
@@ -96,7 +96,7 @@ jobs:
                   cur_assets = [a.get('name') for a in cur.get('assets', []) if isinstance(a, dict)]
                   cur_body = cur.get('body') or ''
                   if (target_apk_name in cur_assets and FALLBACK_NOTICE not in cur_body
-                          and cur_body.count('<summary><b>버전 ') == 2):
+                          and cur_body.count('<summary><b>버전 ') == 1):
                       print(f'이미 최신 버전({version})과 한국어 번역본이 유지되고 있어 작업을 건너뜁니다.')
                       with github_env.open('a', encoding='utf-8') as f:
                           f.write('NEED_UPDATE=false\n')
@@ -107,8 +107,8 @@ jobs:
           with github_env.open('a', encoding='utf-8') as f:
               f.write('NEED_UPDATE=true\n')
 
-          # 최신 릴리즈 + 이전 릴리즈 최대 2개의 본문만 번역
-          releases = data[:3]
+          # 최신 릴리즈 + 이전 릴리즈 최대 1개의 본문만 번역
+          releases = data[:2]
           contents = {}
           for i, release in enumerate(releases):
               if i and not release.get('tag_name'):
