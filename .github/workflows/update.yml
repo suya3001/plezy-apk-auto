@@ -66,7 +66,7 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          MODEL = 'gemini-2.5-flash'
+          MODEL = 'gemini-3.5-flash'
           API_URL = f'https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent'
           FALLBACK_NOTICE = '> 한국어 번역에 실패하여 릴리즈 노트를 원문으로 제공합니다. APK는 최신 버전입니다.'
 
